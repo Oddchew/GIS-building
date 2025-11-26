@@ -1,0 +1,68 @@
+<!-- templates/index.html -->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Подбор площадки под строительство</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div id="controls">
+        <label>Тип здания:
+            <select id="building-type">
+                <option value="house">Дом</option>
+                <option value="cottage">Коттедж</option>
+                <option value="warehouse">Склад</option>
+            </select>
+        </label>
+        <label>Размер (условные единицы):
+            <input type="range" id="size-slider" min="0.001" max="0.02" step="0.001" value="0.005">
+            <span id="size-value">0.005</span>
+        </label>
+    </div>
+
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        const map = L.map('map').setView([55.75, 37.62], 12);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+        let currentMarker = null;
+
+        document.getElementById('size-slider').addEventListener('input', (e) => {
+            document.getElementById('size-value').textContent = e.target.value;
+        });
+
+        map.on('click', async (e) => {
+            const lat = e.latlng.lat;
+            const lng = e.latlng.lng;
+            const buildingType = document.getElementById('building-type').value;
+            const size = parseFloat(document.getElementById('size-slider').value);
+
+            // Удаляем предыдущий маркер
+            if (currentMarker) map.removeLayer(currentMarker);
+
+            // Отправляем запрос на сервер
+            const response = await fetch('/check', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ lat, lng, building_type: buildingType, size })
+            });
+
+            const result = await response.json();
+
+            const color = result.allowed ? 'green' : 'red';
+            const message = result.allowed ? 'Можно строить!' : `Нельзя: ${result.reason}`;
+
+            currentMarker = L.circleMarker([lat, lng], {
+                radius: 8,
+                color: color,
+                fillColor: color,
+                fillOpacity: 0.7
+            }).addTo(map).bindPopup(message).openPopup();
+        });
+    </script>
+</body>
+</html>
