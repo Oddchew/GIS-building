@@ -1,6 +1,6 @@
 # app.py
 from flask import Flask, render_template, jsonify, request
-from models import is_allowed_to_build
+from models import is_house_placeable
 
 app = Flask(__name__)
 
@@ -14,9 +14,12 @@ def check_location():
     lat = float(data['lat'])
     lon = float(data['lng'])
     building_type = data['building_type']
-    size = float(data['size'])
+    length = float(data['length'])
+    width = float(data['width'])
+    rotation = float(data.get('rotation', 0))
 
-    allowed, reason = is_allowed_to_build(lat, lon, building_type, size)
+    # ✅ Используем НОВУЮ функцию
+    allowed, reason = is_house_placeable(lat, lon, length, width, rotation, building_type)
 
     return jsonify({
         'allowed': allowed,

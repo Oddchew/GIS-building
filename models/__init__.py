@@ -1,0 +1,1 @@
+from models.validator import is_house_placeable

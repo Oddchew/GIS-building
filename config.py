@@ -32,3 +32,9 @@ ACCESSIBLE_HIGHWAYS = {
     "motorway", "trunk", "primary", "secondary", "tertiary",
     "unclassified", "residential", "service", "track", "road"
 }
+
+MAX_BUILDING_SIZES = {
+    "house": 20,      # макс "размер" — для ориентира
+    "cottage": 30,
+    "warehouse": 60
+}

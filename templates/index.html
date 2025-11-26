@@ -16,8 +16,15 @@
                 <option value="warehouse">Склад</option>
             </select>
         </label>
-        <label>Размер дома (метры):
-            <input type="number" id="size-input" min="5" max="60" value="10">
+        <label>Длина (м):
+            <input type="number" id="length-input" min="5" max="100" value="12">
+        </label>
+        <label>Ширина (м):
+            <input type="number" id="width-input" min="5" max="60" value="8">
+        </label>
+        <label>Поворот (°):
+            <input type="range" id="rotation-slider" min="0" max="360" value="0">
+            <span id="rotation-value">0°</span>
         </label>
     </div>
 
@@ -25,61 +32,115 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        const map = L.map('map').setView([55.75, 37.62], 12);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+        const map = L.map('map', {
+            zoomControl: true,
+            attributionControl: true
+        }).setView([55.75, 37.62], 13);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+        }).addTo(map);
+
+        // ✅ Линейка масштаба (в метрах)
+        L.control.scale({imperial: false, maxWidth: 200}).addTo(map);
 
         let currentMarker = null;
-        let currentHouseArea = null;
+        let currentHousePoly = null;
+
+        // Обновление значения угла
+        const rotSlider = document.getElementById('rotation-slider');
+        const rotValue = document.getElementById('rotation-value');
+        rotSlider.addEventListener('input', () => {
+            rotValue.textContent = rotSlider.value + '°';
+        });
 
         map.on('click', async (e) => {
             const lat = e.latlng.lat;
             const lng = e.latlng.lng;
             const buildingType = document.getElementById('building-type').value;
-            const size = parseFloat(document.getElementById('size-input').value);
+            const length = parseFloat(document.getElementById('length-input').value);
+            const width = parseFloat(document.getElementById('width-input').value);
+            const rotation = parseFloat(rotSlider.value); // в градусах
 
-            if (isNaN(size) || size < 5 || size > 60) {
-                alert("Размер должен быть от 5 до 60 метров");
+            if (isNaN(length) || isNaN(width) || length < 5 || width < 5) {
+                alert("Длина и ширина должны быть ≥ 5 м");
                 return;
             }
 
             if (currentMarker) map.removeLayer(currentMarker);
-            if (currentHouseArea) map.removeLayer(currentHouseArea);
+            if (currentHousePoly) map.removeLayer(currentHousePoly);
 
             try {
                 const response = await fetch('/check', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ lat, lng, building_type: buildingType, size })
+                    body: JSON.stringify({ lat, lng, building_type: buildingType, length, width, rotation })
                 });
 
                 const result = await response.json();
 
                 const color = result.allowed ? 'green' : 'red';
                 const message = result.allowed 
-                    ? `✅ Можно построить дом ${size} м!` 
+                    ? `✅ Можно: ${length}×${width} м, поворот ${rotation}°` 
                     : `❌ ${result.reason}`;
 
                 currentMarker = L.circleMarker([lat, lng], {
-                    radius: 8,
+                    radius: 5,
                     color: color,
                     fillColor: color,
-                    fillOpacity: 0.7
+                    fillOpacity: 0.8
                 }).addTo(map).bindPopup(message).openPopup();
 
-                // Визуализация дома
-                currentHouseArea = L.circle([lat, lng], {
-                    radius: size / 2, // Leaflet принимает радиус в МЕТРАХ!
+                // Получаем координаты повернутого прямоугольника
+                const cornerLatsLngs = getRotatedRectangle(lat, lng, length, width, rotation);
+                currentHousePoly = L.polygon(cornerLatsLngs, {
                     color: color,
                     fillColor: color,
                     fillOpacity: 0.15,
-                    weight: 1
+                    weight: 2
                 }).addTo(map);
 
             } catch (err) {
                 console.error("Ошибка:", err);
-                alert("Ошибка при проверке. Подробности в консоли.");
+                alert("Ошибка при проверке.");
             }
         });
+
+        // 🌍 Функция: строит повернутый прямоугольник в координатах [lat, lng]
+        function getRotatedRectangle(centerLat, centerLng, lengthM, widthM, angleDeg) {
+            const earthRadius = 6378137; // метров
+            const angleRad = angleDeg * Math.PI / 180;
+
+            // Половинные размеры
+            const halfLen = lengthM / 2;
+            const halfWid = widthM / 2;
+
+            // Угловые смещения в метрах (локальная система)
+            const cornersM = [
+                [-halfWid,  halfLen], // лево-верх
+                [ halfWid,  halfLen], // право-верх
+                [ halfWid, -halfLen], // право-низ
+                [-halfWid, -halfLen]  // лево-низ
+            ];
+
+            // Поворот в метрах
+            const rotatedCornersM = cornersM.map(([x, y]) => {
+                const xRot = x * Math.cos(angleRad) - y * Math.sin(angleRad);
+                const yRot = x * Math.sin(angleRad) + y * Math.cos(angleRad);
+                return [xRot, yRot];
+            });
+
+            // Конвертация смещений (метры → градусы)
+            const cosLat = Math.cos(centerLat * Math.PI / 180);
+            const metersPerDegLat = 111132.92;
+            const metersPerDegLng = 111412.84 * cosLat;
+
+            return rotatedCornersM.map(([dx, dy]) => {
+                const dLat = dy / metersPerDegLat;
+                const dLng = dx / metersPerDegLng;
+                return [centerLat + dLat, centerLng + dLng];
+            });
+        }
     </script>
 </body>
 </html>
