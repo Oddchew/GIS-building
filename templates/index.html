@@ -16,9 +16,8 @@
                 <option value="warehouse">Склад</option>
             </select>
         </label>
-        <label>Размер (условные единицы):
-            <input type="range" id="size-slider" min="0.001" max="0.02" step="0.001" value="0.005">
-            <span id="size-value">0.005</span>
+        <label>Размер дома (метры):
+            <input type="number" id="size-input" min="5" max="60" value="10">
         </label>
     </div>
 
@@ -30,38 +29,56 @@
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
         let currentMarker = null;
-
-        document.getElementById('size-slider').addEventListener('input', (e) => {
-            document.getElementById('size-value').textContent = e.target.value;
-        });
+        let currentHouseArea = null;
 
         map.on('click', async (e) => {
             const lat = e.latlng.lat;
             const lng = e.latlng.lng;
             const buildingType = document.getElementById('building-type').value;
-            const size = parseFloat(document.getElementById('size-slider').value);
+            const size = parseFloat(document.getElementById('size-input').value);
 
-            // Удаляем предыдущий маркер
+            if (isNaN(size) || size < 5 || size > 60) {
+                alert("Размер должен быть от 5 до 60 метров");
+                return;
+            }
+
             if (currentMarker) map.removeLayer(currentMarker);
+            if (currentHouseArea) map.removeLayer(currentHouseArea);
 
-            // Отправляем запрос на сервер
-            const response = await fetch('/check', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ lat, lng, building_type: buildingType, size })
-            });
+            try {
+                const response = await fetch('/check', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ lat, lng, building_type: buildingType, size })
+                });
 
-            const result = await response.json();
+                const result = await response.json();
 
-            const color = result.allowed ? 'green' : 'red';
-            const message = result.allowed ? 'Можно строить!' : `Нельзя: ${result.reason}`;
+                const color = result.allowed ? 'green' : 'red';
+                const message = result.allowed 
+                    ? `✅ Можно построить дом ${size} м!` 
+                    : `❌ ${result.reason}`;
 
-            currentMarker = L.circleMarker([lat, lng], {
-                radius: 8,
-                color: color,
-                fillColor: color,
-                fillOpacity: 0.7
-            }).addTo(map).bindPopup(message).openPopup();
+                currentMarker = L.circleMarker([lat, lng], {
+                    radius: 8,
+                    color: color,
+                    fillColor: color,
+                    fillOpacity: 0.7
+                }).addTo(map).bindPopup(message).openPopup();
+
+                // Визуализация дома
+                currentHouseArea = L.circle([lat, lng], {
+                    radius: size / 2, // Leaflet принимает радиус в МЕТРАХ!
+                    color: color,
+                    fillColor: color,
+                    fillOpacity: 0.15,
+                    weight: 1
+                }).addTo(map);
+
+            } catch (err) {
+                console.error("Ошибка:", err);
+                alert("Ошибка при проверке. Подробности в консоли.");
+            }
         });
     </script>
 </body>
