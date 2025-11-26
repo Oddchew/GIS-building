@@ -1,15 +1,15 @@
 # models/geometry.py
-from shapely.geometry import Point, Polygon, LineString
-from shapely.ops import polygonize, linemerge
+from shapely.geometry import Polygon, LineString
 from typing import List, Tuple, Dict, Any
+from config import FORBIDDEN_OSM_TAGS
 
 def extract_nodes(elements: List[Dict[str, Any]]) -> Dict[int, Tuple[float, float]]:
     return {el['id']: (el['lon'], el['lat']) for el in elements if el['type'] == 'node'}
 
 def build_geometries(elements: List[Dict[str, Any]]) -> Tuple[
-    List[Tuple[Polygon, str]],  # (полигон, причина)
-    List[LineString],           # дороги
-    List[LineString]            # мосты (bridge=yes)
+    List[Tuple[Polygon, str]],
+    List[LineString],
+    List[LineString]
 ]:
     nodes = extract_nodes(elements)
     forbidden = []
@@ -25,24 +25,9 @@ def build_geometries(elements: List[Dict[str, Any]]) -> Tuple[
         if len(coords) < 2:
             continue
 
-        # Проверка на запрещённые теги
+        # Определяем причину запрета
         obstruction_reason = None
-        for key, value, reason in [
-            ("building", None, "Здание"),
-            ("natural", "water", "Водоём"),
-            ("waterway", None, "Река/канал"),
-            ("landuse", "forest", "Лес"),
-            ("natural", "wood", "Лес"),
-            ("landuse", "industrial", "Промышленная зона"),
-            ("landuse", "commercial", "Коммерческая зона"),
-            ("leisure", "park", "Парк"),
-            ("leisure", "garden", "Сад/сквер"),
-            ("railway", None, "Железнодорожные пути"),
-            ("aeroway", None, "Аэродром"),
-            ("military", None, "Военная зона"),
-            ("power", "plant", "Электростанция"),
-            ("man_made", "works", "Завод"),
-        ]:
+        for key, value, reason in FORBIDDEN_OSM_TAGS:
             if key in tags and (value is None or tags[key] == value):
                 obstruction_reason = reason
                 break
@@ -59,20 +44,31 @@ def build_geometries(elements: List[Dict[str, Any]]) -> Tuple[
             else:
                 line = LineString(coords)
                 if line.is_valid:
-                    # Дороги
+                    # Дороги для подъезда
                     hw = tags.get("highway")
                     if hw and hw in {
                         "motorway", "trunk", "primary", "secondary", "tertiary",
                         "unclassified", "residential", "service", "track", "road"
                     }:
                         roads.append(line)
-                    # Мосты (даже если не дорога)
+                    # Линейные запрещённые объекты (реки, ЖД)
+                    if obstruction_reason and ("waterway" in tags or "railway" in tags):
+                        # Делаем тонкий буфер, чтобы превратить линию в полигон
+                        forbidden.append((line.buffer(0.00005), obstruction_reason))
                     if tags.get("bridge") == "yes":
                         bridges.append(line)
-                    # ЖД, реки и т.д. как линии
-                    if obstruction_reason and ("railway" in tags or "waterway" in tags):
-                        forbidden.append((line.buffer(0.0001), obstruction_reason))  # делаем тонкий буфер
         except Exception:
             continue
+
+    # Также обработаем relations (например, protected_area может быть relation)
+    for el in elements:
+        if el['type'] == 'relation':
+            tags = el.get('tags', {})
+            # Проверим, является ли relation запрещённой зоной
+            for key, value, reason in FORBIDDEN_OSM_TAGS:
+                if key in tags and (value is None or tags[key] == value):
+                    # В идеале нужно собрать геометрию relation → сложно без библиотеки вроде osm2geojson
+                    # Пока пропустим — большинство protected_area есть и как way
+                    pass
 
     return forbidden, roads, bridges
